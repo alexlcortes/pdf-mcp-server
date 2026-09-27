@@ -18,6 +18,7 @@ Claude can't read large local files directly. This server exposes a small set of
 |---|---|
 | `list_pdfs` | List available documents (filenames without `.pdf`) |
 | `search_pdf(document, query, max_results)` | Semantic search over chunks, returns text + page range + relevance score |
+| `find_exact_text(document, phrase, max_results)` | Literal, case-insensitive phrase search across every page — catches exact proper nouns (item/faction/NPC names) semantic search can miss |
 | `get_pdf_page(document, page_number)` | Raw extracted text of one page |
 | `get_pdf_summary(document, max_pages)` | Text of the first few pages, for a quick overview |
 | `get_pdf_page_count(document)` | Total page count |

@@ -234,6 +234,37 @@ class PDFIndex:
     def get_page(self, doc_id: str, page_number: int) -> str:
         return self._get_document(doc_id).page_text(page_number)
 
+    def keyword_search(
+        self, doc_id: str, phrase: str, max_results: int = 10, context_chars: int = 200
+    ) -> list[dict]:
+        """Find literal, case-insensitive occurrences of a phrase across every
+        page. Complements semantic search: catches exact proper nouns (named
+        items, factions, NPCs) that a short flavor-text mention can cause
+        semantic search to rank low or miss entirely.
+        """
+        document = self._get_document(doc_id)
+        needle = phrase.lower()
+        hits = []
+        for page_number, page_text in enumerate(document.pages, start=1):
+            haystack = page_text.lower()
+            start = 0
+            while True:
+                idx = haystack.find(needle, start)
+                if idx == -1:
+                    break
+                snippet_start = max(idx - context_chars, 0)
+                snippet_end = min(idx + len(phrase) + context_chars, len(page_text))
+                hits.append(
+                    {
+                        "page": page_number,
+                        "snippet": page_text[snippet_start:snippet_end].strip(),
+                    }
+                )
+                if len(hits) >= max_results:
+                    return hits
+                start = idx + len(needle)
+        return hits
+
     def get_summary_text(self, doc_id: str, max_pages: int = 3) -> str:
         document = self._get_document(doc_id)
         return "\n\n".join(document.pages[:max_pages])

@@ -57,6 +57,28 @@ def get_pdf_page(document: str, page_number: int) -> str:
 
 
 @mcp.tool()
+def find_exact_text(
+    document: str, phrase: str, max_results: int = 10
+) -> list[dict]:
+    """Find every literal, case-insensitive occurrence of an exact phrase in a
+    PDF (e.g. a proper noun: an item, faction, or character name).
+
+    Use this when search_pdf's semantic search doesn't turn up a specific
+    named term you're looking for, or when you need to confirm every place a
+    name appears rather than just the most semantically similar excerpts.
+
+    Args:
+        document: Document id as returned by list_pdfs.
+        phrase: The exact text to search for (case-insensitive).
+        max_results: Maximum number of occurrences to return (default 10).
+    """
+    try:
+        return _index.keyword_search(document, phrase, max_results=max_results)
+    except ValueError as exc:
+        return [{"error": str(exc)}]
+
+
+@mcp.tool()
 def get_pdf_summary(document: str, max_pages: int = 3) -> str:
     """Get the text of the first few pages of a PDF, useful for a quick
     overview before doing targeted searches.
