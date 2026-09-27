@@ -1,0 +1,10 @@
+.venv/
+.index/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Source PDFs are user-provided content, not part of the codebase.
+# Keep the folder tracked (via .gitkeep) but never commit actual PDFs.
+pdfs/*
+!pdfs/.gitkeep
