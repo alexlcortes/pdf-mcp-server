@@ -22,16 +22,33 @@ Claude can't read large local files directly. This server exposes a small set of
 | `get_pdf_summary(document, max_pages)` | Text of the first few pages, for a quick overview |
 | `get_pdf_page_count(document)` | Total page count |
 
-## Setup
+## Quick Start
 
-1. Requires [`uv`](https://docs.astral.sh/uv/) and Python 3.12+.
-2. Install dependencies:
+1. **Install dependencies**
    ```bash
    uv sync
    ```
-3. Put PDFs you want to query into `pdfs/` (this folder is gitignored — PDFs are your own content, not part of the repo).
+2. **Add your PDF**
+   Copy the PDF you want to query into `pdfs/` (this folder is gitignored — PDFs are your own content, not part of the repo).
+3. **Test it locally with MCP Inspector** (a browser UI for calling tools directly, before involving Claude)
+   ```bash
+   uv run mcp dev src/pdf_mcp_server/server.py
+   ```
+   Open the URL printed in the terminal, click **Connect**, then go to the **Tools** tab and try `list_pdfs` to confirm your PDF is detected. Stop this process (Ctrl+C) once you're done testing.
+4. **Find your absolute project path and `uv` path** (needed for the next step)
+   ```bash
+   pwd            # your project path
+   which uv       # your uv path
+   ```
+5. **Register the server with Claude Desktop**
+   Add an entry to `~/Library/Application Support/Claude/claude_desktop_config.json` (create the file if it doesn't exist) using the absolute paths from step 4 — see [Connecting to Claude Desktop](#connecting-to-claude-desktop) below for the exact JSON.
+6. **Fully quit and reopen Claude Desktop**
+   It only reads the config file at launch, so a config edit while it's running won't take effect until you restart.
+7. **Verify the connection**
+   In Claude Desktop, check the tools/plug icon in the chat UI — `pdf-reader` should appear as a connected server with its tools listed. Ask Claude a question about your PDF to confirm it calls `search_pdf` and answers using real content.
 
 ## Running locally (for testing)
+
 
 Use the MCP Inspector to call tools manually in a browser before wiring into Claude Desktop:
 ```bash
