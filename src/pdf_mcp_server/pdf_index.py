@@ -32,6 +32,27 @@ def _clean_extracted_text(text: str) -> str:
     return text
 
 
+# Maps typographic punctuation (curly quotes, en/em dashes) to their plain
+# ASCII equivalents, used only to normalize text for literal phrase matching.
+# PDFs commonly use curly apostrophes (') where a typed query uses a
+# straight one ('), which otherwise causes exact-phrase search to miss valid
+# matches.
+_NORMALIZE_FOR_MATCH = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+    }
+)
+
+
+def _normalize_for_match(text: str) -> str:
+    return text.translate(_NORMALIZE_FOR_MATCH).lower()
+
+
 @dataclass
 class Chunk:
     doc_id: str
@@ -237,16 +258,18 @@ class PDFIndex:
     def keyword_search(
         self, doc_id: str, phrase: str, max_results: int = 10, context_chars: int = 200
     ) -> list[dict]:
-        """Find literal, case-insensitive occurrences of a phrase across every
-        page. Complements semantic search: catches exact proper nouns (named
-        items, factions, NPCs) that a short flavor-text mention can cause
-        semantic search to rank low or miss entirely.
+        """Find literal occurrences of a phrase across every page, ignoring
+        case and typographic punctuation differences (curly vs. straight
+        quotes, en/em dashes vs. hyphens). Complements semantic search:
+        catches exact proper nouns (named items, factions, NPCs) that a short
+        flavor-text mention can cause semantic search to rank low or miss
+        entirely.
         """
         document = self._get_document(doc_id)
-        needle = phrase.lower()
+        needle = _normalize_for_match(phrase)
         hits = []
         for page_number, page_text in enumerate(document.pages, start=1):
-            haystack = page_text.lower()
+            haystack = _normalize_for_match(page_text)
             start = 0
             while True:
                 idx = haystack.find(needle, start)

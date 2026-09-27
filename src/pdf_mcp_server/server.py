@@ -60,8 +60,10 @@ def get_pdf_page(document: str, page_number: int) -> str:
 def find_exact_text(
     document: str, phrase: str, max_results: int = 10
 ) -> list[dict]:
-    """Find every literal, case-insensitive occurrence of an exact phrase in a
-    PDF (e.g. a proper noun: an item, faction, or character name).
+    """Find every occurrence of an exact phrase in a PDF (e.g. a proper noun:
+    an item, faction, or character name). Matching ignores case and
+    typographic punctuation differences (curly vs. straight quotes, dashes),
+    so you don't need to guess the PDF's exact character variants.
 
     Use this when search_pdf's semantic search doesn't turn up a specific
     named term you're looking for, or when you need to confirm every place a
@@ -69,7 +71,7 @@ def find_exact_text(
 
     Args:
         document: Document id as returned by list_pdfs.
-        phrase: The exact text to search for (case-insensitive).
+        phrase: The exact text to search for.
         max_results: Maximum number of occurrences to return (default 10).
     """
     try:
