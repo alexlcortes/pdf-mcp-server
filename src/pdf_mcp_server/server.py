@@ -25,13 +25,13 @@ def list_pdfs() -> list[str]:
 
 
 @mcp.tool()
-def search_pdf(document: str, query: str, max_results: int = 5) -> list[dict]:
+def search_pdf(document: str, query: str, max_results: int = 8) -> list[dict]:
     """Semantically search a PDF for chunks of text relevant to a query.
 
     Args:
         document: Document id as returned by list_pdfs (filename without .pdf).
         query: Natural-language question or keywords to search for.
-        max_results: Maximum number of matching chunks to return (default 5).
+        max_results: Maximum number of matching chunks to return (default 8).
 
     Returns a list of matches, each with page_start, page_end, text, and
     relevance_score (higher is more relevant).

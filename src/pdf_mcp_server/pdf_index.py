@@ -15,8 +15,14 @@ import pdfplumber
 from chromadb.utils import embedding_functions
 from pypdf import PdfReader
 
-CHUNK_SIZE_CHARS = 1800  # ~roughly 400-500 tokens of English text
-CHUNK_OVERLAP_CHARS = 300
+# Smaller chunks keep a short lore blurb (e.g. a weapon's 1-2 sentence flavor
+# text) from sharing an embedding with unrelated surrounding stat blocks or
+# tables, at the cost of less surrounding context per chunk.
+CHUNK_SIZE_CHARS = 700
+CHUNK_OVERLAP_CHARS = 120
+# How far past the target chunk size to look for a paragraph break before
+# falling back to a sentence break, and then a hard cutoff.
+_BOUNDARY_SEARCH_WINDOW = 150
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 # Custom PDF fonts sometimes use decorative glyphs (icons/bullets) with no
@@ -133,11 +139,17 @@ def _chunk_pages(pages: list[str]) -> list[tuple[int, int, str]]:
 
     while start < text_len:
         end = min(start + CHUNK_SIZE_CHARS, text_len)
-        # Try not to cut mid-sentence: extend to the next sentence boundary if close by.
         if end < text_len:
-            next_period = full_text.find(". ", end, end + 200)
-            if next_period != -1:
-                end = next_period + 1
+            window_end = end + _BOUNDARY_SEARCH_WINDOW
+            # Prefer a paragraph break (closest thing to an "entry boundary"
+            # in extracted text) over an arbitrary mid-paragraph sentence cut.
+            next_para = full_text.find("\n\n", end, window_end)
+            if next_para != -1:
+                end = next_para
+            else:
+                next_period = full_text.find(". ", end, window_end)
+                if next_period != -1:
+                    end = next_period + 1
 
         chunk_text = full_text[start:end].strip()
         if chunk_text:
