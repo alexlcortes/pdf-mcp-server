@@ -192,10 +192,18 @@ class PDFIndex:
         return sorted(p.stem for p in self.pdf_dir.glob("*.pdf"))
 
     def _get_document(self, doc_id: str) -> PDFDocument:
+        if not doc_id or "/" in doc_id or "\\" in doc_id:
+            raise ValueError(f"Invalid document id '{doc_id}'.")
+        if doc_id not in self.list_documents():
+            raise ValueError(f"Unknown document '{doc_id}'.")
         if doc_id not in self._documents:
             path = self.pdf_dir / f"{doc_id}.pdf"
-            if not path.exists():
-                raise ValueError(f"Unknown document '{doc_id}'.")
+            try:
+                path.resolve().relative_to(self.pdf_dir.resolve())
+            except ValueError as exc:
+                raise ValueError(
+                    f"Document '{doc_id}' is outside the PDF directory."
+                ) from exc
             self._documents[doc_id] = PDFDocument(doc_id, path)
         return self._documents[doc_id]
 
