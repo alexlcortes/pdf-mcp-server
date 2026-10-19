@@ -23,14 +23,27 @@ Claude can't read large local files directly. This server exposes a small set of
 | `get_pdf_summary(document, max_pages)` | Text of the first few pages, for a quick overview |
 | `get_pdf_page_count(document)` | Total page count |
 
+## Naming your PDFs
+
+A PDF's filename (without `.pdf`) is its document name: it's what `list_pdfs` returns and what Claude passes to every other tool. Claude sees only these names — no titles or descriptions — so keep them short and recognizable, and use the same name when you ask about a book. For example:
+
+| File in `pdfs/` | Document name | Book |
+|---|---|---|
+| `FAGE.pdf` | `FAGE` | Fantasy AGE 2nd Edition Core Rulebook |
+| `BREAK.pdf` | `BREAK` | BREAK!! RPG Core Rules |
+
+Then just name the book in your question in Claude Desktop, e.g. "In FAGE, how does initiative work?" or "Look up the exact name *Opportunistic Butcher* in BREAK." If you don't name one, Claude picks from the names or searches each book in turn.
+
+Renaming or removing a PDF is safe: it's re-indexed under its new name on the next search, and the old name's index entries are deleted when the server next starts.
+
 ## Quick Start
 
 1. **Install dependencies**
    ```bash
    uv sync
    ```
-2. **Add your PDF**
-   Copy the PDF you want to query into `pdfs/` (this folder is gitignored — PDFs are your own content, not part of the repo).
+2. **Add your PDFs**
+   Copy the PDFs you want to query into `pdfs/` (this folder is gitignored — PDFs are your own content, not part of the repo). Give each a short name — see [Naming your PDFs](#naming-your-pdfs).
 3. **Test it locally with MCP Inspector** (a browser UI for calling tools directly, before involving Claude)
    ```bash
    uv run mcp dev src/pdf_mcp_server/server.py
@@ -83,5 +96,5 @@ Fully quit and reopen Claude Desktop afterward — it only reads this file at la
 ## Known limitations (v1)
 
 - Chunking is fixed-size (character-based), not section-aware — a chunk can span unrelated content (e.g. a short lore blurb next to an unrelated stat table).
-- Text extraction from rotated/sidebar layout elements (e.g. character sheet forms) can come out in a garbled reading order — this is a limitation of coordinate-based PDF text extraction, not specific to this tool.
-- Designed for a single large PDF for now; multi-document support is planned.
+- Two-column pages are read column by column, but more complex layouts — three or more columns, a full-width section above two columns, rotated/sidebar elements (e.g. character sheet forms) — can still come out in a garbled reading order. This is a limitation of coordinate-based PDF text extraction, not specific to this tool.
+- Each search covers one document; there's no single search across all PDFs at once.
