@@ -19,9 +19,15 @@ _index = PDFIndex(pdf_dir=PDF_DIR, persist_dir=PERSIST_DIR)
 
 
 @mcp.tool()
-def list_pdfs() -> list[str]:
-    """List the PDF documents currently available to search and read."""
-    return _index.list_documents()
+def list_pdfs() -> str:
+    """List the PDF documents currently available to search and read.
+
+    Returns one document id per line.
+    """
+    # A list return is sent as one content block per id, which some clients
+    # concatenate with no separator (e.g. "BREAK" + "FAGE" -> "BREAKFAGE").
+    documents = _index.list_documents()
+    return "\n".join(documents) if documents else "No PDFs available."
 
 
 @mcp.tool()
