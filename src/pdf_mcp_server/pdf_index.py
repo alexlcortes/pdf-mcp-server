@@ -24,6 +24,19 @@ CHUNK_OVERLAP_CHARS = 120
 # falling back to a sentence break, and then a hard cutoff.
 _BOUNDARY_SEARCH_WINDOW = 150
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+# Bump whenever extraction or chunking changes, so existing indexes (keyed by
+# PDF content hash) are rebuilt instead of serving chunks from the old logic.
+INDEX_VERSION = "2"
+
+# Two-column detection: look for a vertical gutter in the middle band of the
+# page that at most a few words (full-width headings) cross. Single-column
+# prose crosses the middle on nearly every line, and full-width tables cross
+# it on most rows, so neither produces a qualifying gutter.
+_GUTTER_SEARCH_RANGE = (0.35, 0.65)  # fraction of page width
+_GUTTER_MIN_WIDTH = 6  # points
+_GUTTER_MAX_CROSSING_WORDS = 2
+_MIN_WORDS_FOR_COLUMNS = 40
+_MIN_COLUMN_WORD_FRACTION = 0.15
 
 # Custom PDF fonts sometimes use decorative glyphs (icons/bullets) with no
 # Unicode mapping; pdfminer/pdfplumber then emit a raw "(cid:N)" placeholder
@@ -59,6 +72,102 @@ def _normalize_for_match(text: str) -> str:
     return text.translate(_NORMALIZE_FOR_MATCH).lower()
 
 
+def _find_gutter(words: list[dict], page_width: float) -> tuple[float, float] | None:
+    """Return the (x0, x1) span of a two-column gutter, or None if the page
+    doesn't look like a two-column layout.
+    """
+    if len(words) < _MIN_WORDS_FOR_COLUMNS:
+        return None
+
+    # Count how many words cover each whole-point x position.
+    width = int(page_width) + 2
+    delta = [0] * (width + 1)
+    for word in words:
+        # Clamp: some PDFs place stray text partly or wholly off the page.
+        start = min(max(int(word["x0"]), 0), width)
+        end = min(max(int(word["x1"]) + 1, start), width)
+        delta[start] += 1
+        delta[end] -= 1
+    coverage, running = [], 0
+    for d in delta[:width]:
+        running += d
+        coverage.append(running)
+
+    # Widest run of low-coverage x positions within the middle band.
+    lo = int(page_width * _GUTTER_SEARCH_RANGE[0])
+    hi = int(page_width * _GUTTER_SEARCH_RANGE[1])
+    best: tuple[int, int] | None = None
+    run_start = None
+    for x in range(lo, hi + 1):
+        if x <= hi - 1 and coverage[x] <= _GUTTER_MAX_CROSSING_WORDS:
+            if run_start is None:
+                run_start = x
+        elif run_start is not None:
+            if best is None or x - run_start > best[1] - best[0]:
+                best = (run_start, x)
+            run_start = None
+    if best is None or best[1] - best[0] < _GUTTER_MIN_WIDTH:
+        return None
+
+    gutter_x0, gutter_x1 = best
+    left = sum(1 for w in words if w["x1"] <= gutter_x0)
+    right = sum(1 for w in words if w["x0"] >= gutter_x1)
+    min_words = len(words) * _MIN_COLUMN_WORD_FRACTION
+    if left < min_words or right < min_words:
+        return None
+    return float(gutter_x0), float(gutter_x1)
+
+
+def _region_text(
+    page: pdfplumber.page.Page, x0: float, top: float, x1: float, bottom: float
+) -> str:
+    """Text of the characters whose centers fall inside the given region, so
+    each character lands in exactly one region regardless of partial overlap.
+    """
+
+    def inside(obj: dict) -> bool:
+        cx = (obj["x0"] + obj["x1"]) / 2
+        cy = (obj["top"] + obj["bottom"]) / 2
+        return x0 <= cx < x1 and top <= cy < bottom
+
+    return page.filter(inside).extract_text() or ""
+
+
+def _extract_page_text(page: pdfplumber.page.Page) -> str:
+    """Extract a page's text in reading order. For two-column pages, reads
+    the left column then the right column, with any full-width rows that
+    cross the gutter (e.g. chapter headings) kept in their vertical position.
+    """
+    words = page.extract_words()
+    gutter = _find_gutter(words, page.width)
+    if gutter is None:
+        return page.extract_text() or ""
+    gutter_x0, gutter_x1 = gutter
+    split_x = (gutter_x0 + gutter_x1) / 2
+
+    # Vertical spans of rows that cross the gutter, merged where they overlap.
+    spanning: list[list[float]] = []
+    for word in sorted(words, key=lambda w: w["top"]):
+        if word["x0"] < gutter_x1 and word["x1"] > gutter_x0:
+            if spanning and word["top"] <= spanning[-1][1]:
+                spanning[-1][1] = max(spanning[-1][1], word["bottom"])
+            else:
+                spanning.append([word["top"], word["bottom"]])
+
+    # Pad the outer edges so characters touching the page boundary are kept.
+    left_edge, right_edge = -1.0, page.width + 1
+    parts: list[str] = []
+    y = -1.0
+    for span_top, span_bottom in spanning + [[page.height + 1, page.height + 1]]:
+        if span_top > y:
+            parts.append(_region_text(page, left_edge, y, split_x, span_top))
+            parts.append(_region_text(page, split_x, y, right_edge, span_top))
+        if span_bottom > span_top:
+            parts.append(_region_text(page, left_edge, span_top, right_edge, span_bottom))
+        y = max(y, span_bottom)
+    return "\n".join(part for part in parts if part.strip())
+
+
 @dataclass
 class Chunk:
     doc_id: str
@@ -87,7 +196,7 @@ class PDFDocument:
         try:
             with pdfplumber.open(self.path) as pdf:
                 for page in pdf.pages:
-                    pages.append(page.extract_text() or "")
+                    pages.append(_extract_page_text(page))
         except Exception:
             pages = []
 
@@ -184,6 +293,25 @@ class PDFIndex:
         )
         self._documents: dict[str, PDFDocument] = {}
         self._indexed_doc_ids: set[str] = set()
+        self.prune_missing_documents()
+
+    def prune_missing_documents(self) -> list[str]:
+        """Delete indexed chunks for documents no longer in the PDF directory
+        (e.g. a PDF that was renamed or removed), so they don't linger on disk.
+        Returns the pruned document ids.
+        """
+        indexed = self._collection.get(include=["metadatas"])
+        indexed_doc_ids = {
+            (meta or {}).get("doc_id") for meta in indexed["metadatas"]
+        }
+        stale = sorted(
+            doc_id
+            for doc_id in indexed_doc_ids - set(self.list_documents())
+            if doc_id
+        )
+        if stale:
+            self._collection.delete(where={"doc_id": {"$in": stale}})
+        return stale
 
     def _doc_id_for_path(self, path: Path) -> str:
         return re.sub(r"[^a-zA-Z0-9_-]", "_", path.stem)
@@ -208,7 +336,9 @@ class PDFIndex:
         return self._documents[doc_id]
 
     def _content_hash(self, path: Path) -> str:
-        return hashlib.sha1(path.read_bytes()).hexdigest()[:16]
+        digest = hashlib.sha1(path.read_bytes())
+        digest.update(f"index-v{INDEX_VERSION}".encode())
+        return digest.hexdigest()[:16]
 
     def ensure_indexed(self, doc_id: str) -> None:
         """Chunk and embed the document into Chroma if not already done for
